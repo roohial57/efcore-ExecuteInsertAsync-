@@ -1,8 +1,8 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-using System.Collections;
-using System.Runtime.CompilerServices;
+using Microsoft.EntityFrameworkCore.Diagnostics;
+using Microsoft.EntityFrameworkCore.Query;
 using Microsoft.EntityFrameworkCore.Query.Internal;
 
 // ReSharper disable once CheckNamespace
@@ -2712,7 +2712,7 @@ public static class EntityFrameworkQueryableExtensions
                     method: IgnoreNamedQueryFiltersMethodInfo.MakeGenericMethod(typeof(TEntity)),
                     // converting the collection to an array if it isn't already one to ensure consistent caching. Fixes #37112.
                     // #37212 may be a possible future solution providing broader capabilities around parameterizing collections.
-                    arguments: [source.Expression, Expression.Constant(filterKeys is string[] ? filterKeys : filterKeys.ToArray())]))
+                    arguments: [source.Expression, Expression.Constant(filterKeys is string[]? filterKeys : filterKeys.ToArray())]))
             : source;
 
     #endregion
@@ -3434,5 +3434,80 @@ public static class EntityFrameworkQueryableExtensions
             .GetMethods(BindingFlags.NonPublic | BindingFlags.Static)
             .Single(m => m.Name == nameof(ExecuteUpdate) && m.GetParameters()[1].ParameterType == typeof(IReadOnlyList<ITuple>));
 
+    #endregion
+
+    #region ExecuteInsert
+
+    /// <summary>
+    ///     Inserts database rows into the target entity type using the result of the source LINQ query.
+    /// </summary>
+    /// <remarks>
+    ///     <para>
+    ///         This operation executes immediately against the database, rather than being deferred until
+    ///         <see cref="DbContext.SaveChanges()" /> is called. It does not materialize entities and does not
+    ///         interact with the EF change tracker in any way.
+    ///     </para>
+    ///     <para>
+    ///         This method translates to a single server-side
+    ///         <c>INSERT INTO ... SELECT ...</c> statement.
+    ///     </para>
+    /// </remarks>
+    /// <typeparam name="TSource">The type of the source query.</typeparam>
+    /// <typeparam name="TTarget">The type of the target entity.</typeparam>
+    /// <param name="source">The source query.</param>
+    /// <param name="selector">A projection specifying how to map source values to the target entity.</param>
+    /// <returns>The total number of rows inserted in the database.</returns>
+    public static int ExecuteInsert<TSource, TTarget>(
+        this IQueryable<TSource> source,
+        Expression<Func<TSource, TTarget>> selector)
+        => source.Provider.Execute<int>(
+            Expression.Call(
+                ExecuteInsertMethodInfo.MakeGenericMethod(typeof(TSource), typeof(TTarget)),
+                source.Expression,
+                Expression.Quote(selector)));
+    /// <summary>
+    ///     Asynchronously inserts database rows into the target entity type using the result of the source LINQ query.
+    /// </summary>
+    /// <remarks>
+    ///     <para>
+    ///         This operation executes immediately against the database, rather than being deferred until
+    ///         <see cref="DbContext.SaveChanges()" /> is called. It does not materialize entities and does not
+    ///         interact with the EF change tracker in any way.
+    ///     </para>
+    ///     <para>
+    ///         This method translates to a single server-side
+    ///         <c>INSERT INTO ... SELECT ...</c> statement.
+    ///     </para>
+    /// </remarks>
+    /// <typeparam name="TSource">The type of the source query.</typeparam>
+    /// <typeparam name="TTarget">The type of the target entity.</typeparam>
+    /// <param name="source">The source query.</param>
+    /// <param name="selector">A projection specifying how to map source values to the target entity.</param>
+    /// <param name="cancellationToken">A <see cref="CancellationToken" /> to observe.</param>
+    /// <returns>The total number of rows inserted in the database.</returns>
+    public static Task<int> ExecuteInsertAsync<TSource, TTarget>(
+        this IQueryable<TSource> source,
+        Expression<Func<TSource, TTarget>> selector,
+        CancellationToken cancellationToken = default)
+        => source.Provider is IAsyncQueryProvider provider
+            ? provider.ExecuteAsync<Task<int>>(
+                Expression.Call(
+                    ExecuteInsertMethodInfo.MakeGenericMethod(typeof(TSource), typeof(TTarget)),
+                    source.Expression,
+                    Expression.Quote(selector)),
+                cancellationToken)
+            : throw new InvalidOperationException(CoreStrings.IQueryableProviderNotAsync);
+    private static int ExecuteInsert<TSource, TTarget>(
+        this IQueryable<TSource> source,
+        Expression<Func<TSource, TTarget>> selector)
+        => throw new UnreachableException("Can't call this overload directly");
+
+    [EntityFrameworkInternal]
+    public static readonly MethodInfo ExecuteInsertMethodInfo
+        = typeof(EntityFrameworkQueryableExtensions)
+            .GetMethods(BindingFlags.NonPublic | BindingFlags.Static)
+            .Single(m =>
+                m.Name == nameof(ExecuteInsert)
+                && m.GetGenericArguments().Length == 2);
     #endregion
 }

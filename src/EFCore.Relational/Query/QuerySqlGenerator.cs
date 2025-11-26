@@ -1765,4 +1765,25 @@ public class QuerySqlGenerator : SqlExpressionVisitor
         (precedence, isAssociative) = (default, default);
         return false;
     }
+
+    protected virtual void GenerateInsert(InsertExpression insert)
+    {
+        Sql.Append("INSERT INTO ");
+        Sql.Append(Dependencies.SqlGenerationHelper.DelimitIdentifier(insert.Table, insert.Schema));
+        Sql.Append(" (");
+
+        for (var i = 0; i < insert.Properties.Count; i++)
+        {
+            if (i > 0)
+                Sql.Append(", ");
+
+            Sql.Append(
+                Dependencies.SqlGenerationHelper.DelimitIdentifier(
+                    insert.Properties[i].GetColumnName()));
+        }
+
+        Sql.AppendLine(")");
+
+        Visit(insert.Source);
+    }
 }

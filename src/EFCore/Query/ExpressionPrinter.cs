@@ -1141,4 +1141,20 @@ public class ExpressionPrinter : ExpressionVisitor
 
     private void UnhandledExpressionType(Expression expression)
         => AppendLine(expression.ToString());
+
+    protected override Expression VisitMethodCall(MethodCallExpression methodCallExpression)
+    {
+        if (methodCallExpression.Method.IsGenericMethod
+            && methodCallExpression.Method.GetGenericMethodDefinition()
+                == EntityFrameworkQueryableExtensions.ExecuteInsertMethodInfo)
+        {
+            var source = Visit(methodCallExpression.Arguments[0]) as ShapedQueryExpression;
+            var selector = (LambdaExpression)((UnaryExpression)methodCallExpression.Arguments[1]).Operand;
+
+            return TranslateExecuteInsert(source!, selector) ?? QueryCompilationContext.NotTranslatedExpression;
+        }
+
+        return base.VisitMethodCall(methodCallExpression);
+    }
+
 }
